@@ -3211,6 +3211,9 @@ strikethrough, task lists, and autolinked bare URLs.
 <markdown source={readme} onLinkClick={(e) => open(e.value)} />
 ```
 
+Links paint a pointing-hand cursor and fire `onLinkClick` with their URL. The
+pointer changes only over link text, not over ordinary prose.
+
 ![Markdown with headings, lists, a table and a code fence](./docs/images/markdown.png)
 
 ### Theming

@@ -14,13 +14,14 @@
 
 use std::cell::RefCell;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 
 use gpui::{
-    canvas, div, point, prelude::*, px, quad, size, BorderStyle, Bounds, Hsla, SharedString,
-    StyledText, TextLayout, TextRun, Window,
+    canvas, div, point, prelude::*, px, quad, size, AnyElement, BorderStyle, Bounds, CursorStyle,
+    HitboxBehavior, Hsla, SharedString, StyledText, TextLayout, TextRun, Window,
 };
 
 use super::selection::{self, SelectionState};
@@ -272,6 +273,38 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
     };
     let layout = styled.layout().clone();
 
+    // A pointing hand over a link needs a hitbox per painted link rect: GPUI
+    // resolves the cursor from hitboxes, and the text element only owns one box
+    // for the whole run. The layer is absolute and empty, so it neither moves
+    // the glyphs nor paints anything.
+    let link_cursors: Option<AnyElement> = (!links.is_empty()).then(|| {
+        let hitboxes = Rc::new(RefCell::new(Vec::new()));
+        let prepaint_hitboxes = hitboxes.clone();
+        let paint_hitboxes = hitboxes.clone();
+        let cursor_layout = layout.clone();
+        let cursor_links = links.clone();
+        canvas(
+            move |_, window, _| {
+                let mut hitboxes = prepaint_hitboxes.borrow_mut();
+                hitboxes.clear();
+                for (range, _) in &cursor_links {
+                    for rect in range_rects(&cursor_layout, range, 0.0, 0.0) {
+                        hitboxes.push(window.insert_hitbox(rect, HitboxBehavior::Normal));
+                    }
+                }
+            },
+            move |_, _, window, _| {
+                for hitbox in paint_hitboxes.borrow().iter() {
+                    window.set_cursor_style(CursorStyle::PointingHand, hitbox);
+                }
+            },
+        )
+        .absolute()
+        .w(px(0.0))
+        .h(px(0.0))
+        .into_any_element()
+    });
+
     let underlay = canvas(
         |_, _, _| (),
         move |_, _, window, _| {
@@ -324,11 +357,11 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
     .absolute()
     .size_full();
 
-    div()
-        .relative()
-        .child(underlay)
-        .child(styled)
-        .into_any_element()
+    let mut text = div().relative().child(underlay).child(styled);
+    if let Some(layer) = link_cursors {
+        text = text.child(layer);
+    }
+    text.into_any_element()
 }
 
 /// Paint one run's highlight washes and log their geometry.
